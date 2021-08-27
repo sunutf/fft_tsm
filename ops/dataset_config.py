@@ -5,7 +5,7 @@
 
 import os
 
-ROOT_DATASET = '/ssd/video/'  # '/data/jilin/'
+ROOT_DATASET = '/data/to_docker/datasets/'  # '/data/jilin/'
 
 
 def return_ucf101(modality):
@@ -100,11 +100,21 @@ def return_kinetics(modality):
         raise NotImplementedError('no such modality:' + modality)
     return filename_categories, filename_imglist_train, filename_imglist_val, root_data, prefix
 
+def return_actnet(modality):
+    filename_categories = ROOT_DATASET + 'activity-net-v1.3/classInd.txt'
+    if modality == 'RGB':
+        root_data = ROOT_DATASET + 'activity-net-v1.3/frames'
+        filename_imglist_train = 'activity-net-v1.3/actnet_train_split.txt'
+        filename_imglist_val = 'activity-net-v1.3/actnet_val_split.txt'
+        prefix = 'image_{:05d}.jpg'
+    else:
+        raise NotImplementedError('no such modality:' + modality)
+    return filename_categories, filename_imglist_train, filename_imglist_val, root_data, prefix
 
 def return_dataset(dataset, modality):
     dict_single = {'jester': return_jester, 'something': return_something, 'somethingv2': return_somethingv2,
                    'ucf101': return_ucf101, 'hmdb51': return_hmdb51,
-                   'kinetics': return_kinetics }
+                   'kinetics': return_kinetics, 'anet': return_actnet }
     if dataset in dict_single:
         file_categories, file_imglist_train, file_imglist_val, root_data, prefix = dict_single[dataset](modality)
     else:

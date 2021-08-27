@@ -16,13 +16,15 @@ from ops.models import TSN
 from ops.transforms import *
 from opts import parser
 from ops import dataset_config
-from ops.utils import AverageMeter, accuracy
+from ops.utils import AverageMeter, accuracy, cal_map
 from ops.temporal_shift import make_temporal_pool
 
 from tensorboardX import SummaryWriter
 
-best_prec1 = 0
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
+best_prec1 = 0
 
 def main():
     global args, best_prec1
@@ -138,37 +140,7 @@ def main():
     elif args.modality in ['Flow', 'RGBDiff']:
         data_length = 5
 
-    train_loader = torch.utils.data.DataLoader(
-        TSNDataSet(args.root_path, args.train_list, num_segments=args.num_segments,
-                   new_length=data_length,
-                   modality=args.modality,
-                   image_tmpl=prefix,
-                   transform=torchvision.transforms.Compose([
-                       train_augmentation,
-                       Stack(roll=(args.arch in ['BNInception', 'InceptionV3'])),
-                       ToTorchFormatTensor(div=(args.arch not in ['BNInception', 'InceptionV3'])),
-                       normalize,
-                   ]), dense_sample=args.dense_sample),
-        batch_size=args.batch_size, shuffle=True,
-        num_workers=args.workers, pin_memory=True,
-        drop_last=True)  # prevent something not % n_GPU
-
-    val_loader = torch.utils.data.DataLoader(
-        TSNDataSet(args.root_path, args.val_list, num_segments=args.num_segments,
-                   new_length=data_length,
-                   modality=args.modality,
-                   image_tmpl=prefix,
-                   random_shift=False,
-                   transform=torchvision.transforms.Compose([
-                       GroupScale(int(scale_size)),
-                       GroupCenterCrop(crop_size),
-                       Stack(roll=(args.arch in ['BNInception', 'InceptionV3'])),
-                       ToTorchFormatTensor(div=(args.arch not in ['BNInception', 'InceptionV3'])),
-                       normalize,
-                   ]), dense_sample=args.dense_sample),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
-
+    train_loader, val_loader = get_data_loaders(model, prefix, args)
     # define loss function (criterion) and optimizer
     if args.loss_type == 'nll':
         criterion = torch.nn.CrossEntropyLoss().cuda()
@@ -215,6 +187,63 @@ def main():
                 'best_prec1': best_prec1,
             }, is_best)
 
+            
+def build_dataflow(dataset, is_train, batch_size, workers):
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=is_train,
+                                              num_workers=workers, sampler=None,
+                                              drop_last=is_train)
+    return data_loader
+
+
+def get_data_loaders(model, prefix, args):
+    train_transform_flip = torchvision.transforms.Compose([
+        model.module.get_augmentation(flip=True),
+        Stack(roll=("BNInc" in args.arch)),
+        ToTorchFormatTensor(div=("BNInc" not in args.arch)),
+        GroupNormalize(model.module.input_mean, model.module.input_std),
+    ])
+
+    train_transform_nofl = torchvision.transforms.Compose([
+        model.module.get_augmentation(flip=False),
+        Stack(roll=("BNInc" in args.arch)),
+        ToTorchFormatTensor(div=("BNInc" not in args.arch)),
+        GroupNormalize(model.module.input_mean, model.module.input_std),
+    ])
+
+    val_transform = torchvision.transforms.Compose([
+        GroupScale(int(model.module.scale_size)),
+        GroupCenterCrop(model.module.crop_size),
+        Stack(roll=("BNInc" in args.arch)),
+        ToTorchFormatTensor(div=("BNInc" not in args.arch)),
+        GroupNormalize(model.module.input_mean, model.module.input_std),
+    ])
+    train_dataset = TSNDataSet(args.root_path, args.train_list, num_segments=args.num_segments,
+                              modality=args.modality,
+                              image_tmpl=prefix,
+                              dataset = args.dataset,
+                              transform=(train_transform_flip, train_transform_nofl),
+                              dense_sample=args.dense_sample,
+                              rescale_to=args.rescale_to
+                             )
+    
+    
+
+    val_dataset = TSNDataSet(args.root_path, args.val_list, num_segments=args.num_segments,
+                            modality=args.modality,
+                            image_tmpl=prefix,
+                            random_shift=False,
+                            dataset = args.dataset,transform=(val_transform, val_transform),
+                            dense_sample=args.dense_sample,
+                            rescale_to=args.rescale_to
+                           )
+    
+
+
+    train_loader = build_dataflow(train_dataset, True, args.batch_size, args.workers)
+    val_loader = build_dataflow(val_dataset, False, args.batch_size, args.workers)
+
+    return train_loader, val_loader
+
 
 def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
     batch_time = AverageMeter()
@@ -222,7 +251,6 @@ def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
-
     if args.no_partialbn:
         model.module.partialBN(False)
     else:
@@ -242,14 +270,14 @@ def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
 
         # compute output
         output = model(input_var)
-        loss = criterion(output, target_var)
+        loss = criterion(output, target_var[:, 0])
 
         # measure accuracy and record loss
-        prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+        prec1, prec5 = accuracy(output.data, target[:, 0], topk=(1, 5))
         losses.update(loss.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
         top5.update(prec5.item(), input.size(0))
-
+        
         # compute gradient and do SGD step
         loss.backward()
 
@@ -287,7 +315,8 @@ def validate(val_loader, model, criterion, epoch, log=None, tf_writer=None):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
-
+    all_results = []
+    all_targets = []
     # switch to evaluate mode
     model.eval()
 
@@ -298,15 +327,17 @@ def validate(val_loader, model, criterion, epoch, log=None, tf_writer=None):
 
             # compute output
             output = model(input)
-            loss = criterion(output, target)
+            loss = criterion(output, target[:, 0])
 
             # measure accuracy and record loss
-            prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+            prec1, prec5 = accuracy(output.data, target[:, 0], topk=(1, 5))
 
             losses.update(loss.item(), input.size(0))
             top1.update(prec1.item(), input.size(0))
             top5.update(prec5.item(), input.size(0))
-
+            
+            all_results.append(output)
+            all_targets.append(target)
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
@@ -323,9 +354,11 @@ def validate(val_loader, model, criterion, epoch, log=None, tf_writer=None):
                 if log is not None:
                     log.write(output + '\n')
                     log.flush()
+    mAP, _ = cal_map(torch.cat(all_results, 0).cpu(),
+                     torch.cat(all_targets, 0)[:, 0:1].cpu())  # TODO(yue) single-label mAP
 
-    output = ('Testing Results: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Loss {loss.avg:.5f}'
-              .format(top1=top1, top5=top5, loss=losses))
+    output = ('Testing Results:mAP {mAP:.3f} Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Loss {loss.avg:.5f}'
+              .format(mAP=mAP, top1=top1, top5=top5, loss=losses))
     print(output)
     if log is not None:
         log.write(output + '\n')
