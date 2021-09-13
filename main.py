@@ -12,7 +12,7 @@ import torch.optim
 from torch.nn.utils import clip_grad_norm_
 
 from ops.dataset import TSNDataSet
-from ops.models import TSN
+from ops.models_rnn import TSN
 from ops.transforms import *
 from opts import parser
 from ops import dataset_config
@@ -21,6 +21,7 @@ from ops.temporal_shift import make_temporal_pool
 
 from tensorboardX import SummaryWriter
 
+import wandb
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -54,6 +55,11 @@ def main():
 
     check_rootfolders()
 
+    wandb.init(project="tsn_rnn", entity="sunutf")
+    wandb.run.name = "TSN_RNN"
+    wandb.run.save()
+    wandb.config.update(args)
+
     model = TSN(num_class, args.num_segments, args.modality,
                 base_model=args.arch,
                 consensus_type=args.consensus_type,
@@ -64,7 +70,8 @@ def main():
                 is_shift=args.shift, shift_div=args.shift_div, shift_place=args.shift_place,
                 fc_lr5=not (args.tune_from and args.dataset in args.tune_from),
                 temporal_pool=args.temporal_pool,
-                non_local=args.non_local)
+                non_local=args.non_local,
+				is_rnn=args.is_rnn, rnn_rate_list=args.rnn_rate_list, hidden_dim=args.hidden_dim)
 
     crop_size = model.crop_size
     scale_size = model.scale_size
@@ -309,6 +316,11 @@ def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
     tf_writer.add_scalar('acc/train_top5', top5.avg, epoch)
     tf_writer.add_scalar('lr', optimizer.param_groups[-1]['lr'], epoch)
 
+    wandb.log({"train_loss": losses.avg})
+    wandb.log({"train_top1" : top1.avg})
+    wandb.log({"train_top5" : top5.avg})
+
+
 
 def validate(val_loader, model, criterion, epoch, log=None, tf_writer=None):
     batch_time = AverageMeter()
@@ -360,6 +372,9 @@ def validate(val_loader, model, criterion, epoch, log=None, tf_writer=None):
     output = ('Testing Results:mAP {mAP:.3f} Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Loss {loss.avg:.5f}'
               .format(mAP=mAP, top1=top1, top5=top5, loss=losses))
     print(output)
+    wandb.log({"test_loss": losses.avg})
+    wandb.log({"test_top1" : top1.avg})
+    wandb.log({"test_top5" : top5.avg})
     if log is not None:
         log.write(output + '\n')
         log.flush()

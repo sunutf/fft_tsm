@@ -76,3 +76,6 @@ parser.add_argument('--temporal_pool', default=False, action="store_true", help=
 parser.add_argument('--non_local', default=False, action="store_true", help='add non local block')
 
 parser.add_argument('--dense_sample', default=False, action="store_true", help='use dense sample for video dataset')
+parser.add_argument('--is_rnn', default=False, action="store_true", help='use RNN for models')
+parser.add_argument('--rnn_rate_list', default=[1], type=int, nargs='+', help='list of update rate at rnns')
+parser.add_argument('--hidden_dim', default=512, type=int, help='hidden dim of 512')
