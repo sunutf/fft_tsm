@@ -5,12 +5,12 @@
 import pdb
 from torch import nn
 
-from ops.basic_ops import ConsensusModule
+from ops.basic_ops import ConsensusModule, Identity
 from ops.transforms import *
 from torch.nn.init import normal_, constant_
 
-def init_hidden(batch_size, cell_size):
-    init_cell = torch.Tensor(batch_size, cell_size).zero_()
+def init_hidden(batch_size, rnn_cnt,  cell_size):
+    init_cell = torch.zeros(batch_size, rnn_cnt, cell_size)
     if torch.cuda.is_available():
         init_cell = init_cell.cuda()
     return init_cell
@@ -34,6 +34,7 @@ class TSN(nn.Module):
         self.img_feature_dim = img_feature_dim  # the dimension of the CNN feature to represent each frame
         self.pretrain = pretrain
         
+        self.is_spatial_alive = True
         self.is_rnn = is_rnn
         if self.is_rnn:
             self.rnn_rate_list = rnn_rate_list
@@ -97,13 +98,27 @@ class TSN(nn.Module):
    
     def _prepare_tsn(self, num_class):
         feature_dim = getattr(self.base_model, self.base_model.last_layer_name).in_features
-        if self.dropout == 0:
-            setattr(self.base_model, self.base_model.last_layer_name, nn.Linear(feature_dim, num_class))
-            self.new_fc = None
-        else:
-            setattr(self.base_model, self.base_model.last_layer_name, nn.Dropout(p=self.dropout))
-            self.new_fc = nn.Linear(feature_dim, num_class)
+        if self.is_spatial_alive:
+            feature_dim += 7*7
+            #setattr(self.base_model, self.base_model.last_layer_name, Identity)
+            self.base_model.fc = Identity()
+            if self.is_rnn:
+                self.new_fc = nn.Linear(self.hidden_dim, num_class)
+            else:
+                self.new_fc = nn.Linear(feature_dim, num_class)
+        
+        else: 
+            if self.dropout == 0:
+                setattr(self.base_model, self.base_model.last_layer_name, nn.Linear(feature_dim, num_class))
+                self.new_fc = None
+            else:
+                setattr(self.base_model, self.base_model.last_layer_name, nn.Dropout(p=self.dropout))
+                self.new_fc = nn.Linear(feature_dim, num_class)
 
+                if self.is_rnn:
+                    self.new_fc = nn.Linear(self.hidden_dim, num_class)
+                else:
+                    self.new_fc = nn.Linear(feature_dim, num_class)
         std = 0.001
         if self.new_fc is None:
             normal_(getattr(self.base_model, self.base_model.last_layer_name).weight, 0, std)
@@ -134,8 +149,11 @@ class TSN(nn.Module):
             self.input_size = 224
             self.input_mean = [0.485, 0.456, 0.406]
             self.input_std = [0.229, 0.224, 0.225]
-
+            
+            
             self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
+            if self.is_spatial_alive:
+                self.base_model.avgpool = Identity()
 
             if self.modality == 'Flow':
                 self.input_mean = [0.5]
@@ -288,15 +306,15 @@ class TSN(nn.Module):
     def rnn_forward(self, input):
         b_, t_ = input.shape[0]//self.num_segments, self.num_segments
         input_t = input.view(b_, t_, -1)
-        hx_t = init_hidden(b_, self.hidden_dim).unsqueeze(1).repeat(1, len(self.rnn_list), 1)
-        cx_t = init_hidden(b_, self.hidden_dim).unsqueeze(1).repeat(1, len(self.rnn_list), 1) 
+        hx_t = init_hidden(b_, len(self.rnn_list), self.hidden_dim)
+        cx_t = init_hidden(b_, len(self.rnn_list), self.hidden_dim) 
         
         for t_i in range(t_):
             _input = input_t[:,t_i,:] #B,C
             for rate_i, rate in enumerate(self.rnn_rate_list):
                 if t_i%rate == 0:     
-                    hx = hx_t[:,rate_i,:]
-                    cx = cx_t[:,rate_i,:]
+                    hx = hx_t[:, rate_i, :].clone()
+                    cx = cx_t[:, rate_i, :].clone()
                     hx, cx = self.rnn_list[rate_i](_input, (hx, cx))
                     hx_t[:, rate_i, :] = hx
                     cx_t[:, rate_i, :] = cx
@@ -315,12 +333,20 @@ class TSN(nn.Module):
             base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)
-        
+       
+        if self.is_spatial_alive:
+            #base_out B*T,C*7*7
+            base_out = base_out.view(base_out.shape[0], -1, 7, 7)
+            base_out_spatial = torch.mean(base_out, dim=1)
+            base_out_spatial = torch.flatten(base_out_spatial, start_dim=1) #B*T, 49
+            base_out_channel = nn.AdaptiveAvgPool2d(1)(base_out).squeeze().squeeze() #B*T, C
+            base_out = torch.cat((base_out_spatial, base_out_channel), 1) #B*T, 49+C
 
         if self.is_rnn:
-            base_out_ = self.rnn_forward(base_out) #B*T, C -> #B*3,C
-             
-        if self.dropout > 0:
+            base_out = self.rnn_forward(base_out) #B*T, C -> #B*3,C
+        
+        if self.dropout > 0 :
+            base_out = nn.Dropout(p=self.dropout)(base_out)
             base_out = self.new_fc(base_out)
 
         if not self.before_softmax:
@@ -328,7 +354,7 @@ class TSN(nn.Module):
 
         if self.reshape:
             if self.is_rnn:
-                self.num_segments == len(self.rnn_list)
+                self.num_segments = len(self.rnn_list)
             if self.is_shift and self.temporal_pool:
                 base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
             else:
