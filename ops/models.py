@@ -29,6 +29,7 @@ class TSN(nn.Module):
         self.img_feature_dim = img_feature_dim  # the dimension of the CNN feature to represent each frame
         self.pretrain = pretrain
 
+        self.dctidct = True
         self.is_shift = is_shift
         self.shift_div = shift_div
         self.shift_place = shift_place
@@ -112,7 +113,11 @@ class TSN(nn.Module):
                 print('Adding non-local module...')
                 from ops.non_local import make_non_local
                 make_non_local(self.base_model, self.num_segments)
-
+            elif self.dctidct:
+                print("Adding DCT-iDCT .....")
+                from ops.dct import make_low_pass_dctidct
+                make_low_pass_dctidct(self.base_model, self.num_segments)
+                
             self.base_model.last_layer_name = 'fc'
             self.input_size = 224
             self.input_mean = [0.485, 0.456, 0.406]
