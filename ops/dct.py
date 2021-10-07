@@ -216,20 +216,25 @@ class DCTiDCTWrapper3D(nn.Module):
     
         self.block = block
         self.num_segments = n_segments
-        self.dct_c = LinearDCT(block.bn3.num_features, "dct")    
-        self.dct_h = LinearDCT(spatial_dim, "dct")    
-        self.dct_w = LinearDCT(spatial_dim, "dct")    
-        self.dct_t = LinearDCT(n_segments, "dct")    
-        self.idct_c = LinearDCT(block.bn3.num_features, "idct")    
-        self.idct_h = LinearDCT(spatial_dim, "idct")    
-        self.idct_w = LinearDCT(spatial_dim, "idct")    
-        self.idct_t = LinearDCT(n_segments, "dct")
+        self.dct_c = LinearDCT(block.bn3.num_features, "dct", norm='ortho')    
+        self.dct_h = LinearDCT(spatial_dim, "dct", norm='ortho')    
+        self.dct_w = LinearDCT(spatial_dim, "dct", norm='ortho')    
+        self.dct_t = LinearDCT(n_segments, "dct", norm='ortho')    
+        self.idct_c = LinearDCT(block.bn3.num_features, "idct", norm='ortho')    
+        self.idct_h = LinearDCT(spatial_dim, "idct", norm='ortho')    
+        self.idct_w = LinearDCT(spatial_dim, "idct", norm='ortho')    
+        self.idct_t = LinearDCT(n_segments, "idct", norm='ortho')
         
-            
+        self.conv4d = nn.Sequential(
+            nn.Conv3d(2, 2, 1),
+            nn.ReLU(),
+            nn.Conv3d(2, 1, 1),
+            nn.ReLU()
+        ) 
         
     def low_pass(self, x):
         _b, _t, _c, _h, _w = x.shape
-        x[:,_t//4:,_c//4:,_h//4:,_w//4:] = 0 
+        x[:,:_t//7,:_c//7,:_h//7,:_w//7] = 0 
         return x       
 
 
@@ -243,6 +248,13 @@ class DCTiDCTWrapper3D(nn.Module):
         dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
         
         return (x + dct_x).reshape(_bt, _c, _h, _w)
+        '''
+        x = x.reshape(_bt, _c, _h, _w)
+        dct_x = dct_x.reshape(_bt, _c, _h, _w)
+        stack_x = torch.stack([x, dct_x], dim=1)
+        stack_x = self.conf4d(stack_x)
+        return stack_x.squeeze()
+        '''
 
 class LinearDCT(nn.Linear):
     """Implement any DCT as a linear layer; in practice this executes around
@@ -300,10 +312,10 @@ def apply_linear_4d(x, t_FC, c_FC, h_FC, w_FC):
     """
     X1 = w_FC(x)
     X2 = h_FC(X1.transpose(-1, -2))
-    #X3 = c_FC(X2.transpose(-1, -3))
-    X4 = t_FC(X2.transpose(-1, -4))
-    #return X4.transpose(-1, -4).transpose(-1, -3).transpose(-1,-2)
-    return X4.transpose(-1, -4).transpose(-1,-2)
+    X3 = c_FC(X2.transpose(-1, -3))
+    X4 = t_FC(X3.transpose(-1, -4))
+    return X4.transpose(-1, -4).transpose(-1, -3).transpose(-1,-2)
+    #return X4.transpose(-1, -4).transpose(-1,-2)
 
 
 if __name__ == '__main__':
