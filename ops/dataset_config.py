@@ -5,7 +5,7 @@
 
 import os
 
-ROOT_DATASET = '/data/to_docker/datasets/'  # '/data/jilin/'
+ROOT_DATASET = '/dataset/'  # '/data/jilin/'
 
 
 def return_ucf101(modality):
@@ -63,7 +63,7 @@ def return_something(modality):
 def return_somethingv2(modality):
     filename_categories = 'something/v2/category.txt'
     if modality == 'RGB':
-        root_data = ROOT_DATASET + 'something/v2/tsm_img'
+        root_data = ROOT_DATASET + 'something/v2/20bn-something-something-v2-frames'
         filename_imglist_train = 'something/v2/train_videofolder.txt'
         filename_imglist_val = 'something/v2/val_videofolder.txt'
         prefix = '{:06d}.jpg'

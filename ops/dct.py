@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 def dct1(x):
     """
@@ -225,36 +225,57 @@ class DCTiDCTWrapper3D(nn.Module):
         self.idct_w = LinearDCT(spatial_dim, "idct", norm='ortho')    
         self.idct_t = LinearDCT(n_segments, "idct", norm='ortho')
         
-        self.conv4d = nn.Sequential(
-            nn.Conv3d(2, 2, 1),
-            nn.ReLU(),
-            nn.Conv3d(2, 1, 1),
-            nn.ReLU()
-        ) 
+        self.mask_thw = nn.Conv3d(block.bn3.num_features, 1, 1)
+        self.enhance_thw = nn.Sequential(
+                nn.Conv3d(block.bn3.num_features, 1, 1),
+                nn.ReLU()
+                )
         
     def low_pass(self, x):
         _b, _t, _c, _h, _w = x.shape
-        x[:,:_t//7,:_c//7,:_h//7,:_w//7] = 0 
-        return x       
+        x[:,:_t//4,:_c//4,:_h//4,:_w//4] = 0 
+        return x  
 
+    def adaptive_pass(self, x):
+        _b, _t, _c, _h, _w = x.shape
+        mask_x = self.mask_thw(x.permute(0,2,1,3,4)) #B,T,C,H,W => B,1,T,H,W
+        
+        mask_x = mask_x.view(_b, 1, _t*_h*_w).permute(0,2,1)
+
+        mask_x = F.softmax(mask_x, dim=1)
+        mask_x = mask_x.view(_b, _t, _h, _w, 1)
+        mask_x = mask_x.permute(0,1,4,2,3)
+        mask_x = mask_x.expand(-1, -1, _c, -1, -1)
+
+        return mask_x * x
+        
+        #p_t = torch.log(F.softmax(mask_x, dim=-1).clamp(min=1e-8))
+        #r_t = torch.cat([F.gumbel_softmax(p_t[b_i:b_i + 1], tau, True) for b_i in range(p_t.shape[0])]) 
+    
+    def enhancement(self, x):
+        _b, _t, _c, _h, _w = x.shape
+        enh_x = self.enhance_thw(x.permute(0,2,1,3,4))
+
+        enh_x = enh_x.permute(0,2,1,3,4)
+        enh_x = enh_x.expand(-1, -1, _c, -1, -1)
+        
+        return enh_x * x
 
     def forward(self, x):
         _bt, _c, _h, _w = x.shape
         x = self.block(x)
         x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w)
         
+        
         dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
-        dct_x = self.low_pass(dct_x)
+        #dct_x = self.low_pass(dct_x)
+        dct_x = self.adaptive_pass(dct_x)
         dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
         
+        dct_x = self.enhancement(dct_x)
+
         return (x + dct_x).reshape(_bt, _c, _h, _w)
-        '''
-        x = x.reshape(_bt, _c, _h, _w)
-        dct_x = dct_x.reshape(_bt, _c, _h, _w)
-        stack_x = torch.stack([x, dct_x], dim=1)
-        stack_x = self.conf4d(stack_x)
-        return stack_x.squeeze()
-        '''
+        
 
 class LinearDCT(nn.Linear):
     """Implement any DCT as a linear layer; in practice this executes around
@@ -317,8 +338,67 @@ def apply_linear_4d(x, t_FC, c_FC, h_FC, w_FC):
     return X4.transpose(-1, -4).transpose(-1, -3).transpose(-1,-2)
     #return X4.transpose(-1, -4).transpose(-1,-2)
 
+def t_apply_linear_4d(x, c_FC, h_FC, w_FC):
+    """Can be used with a LinearDCT layer to do a 3D DCT.
+    :param x: the input signal
+    :param linear_layer: any PyTorch Linear layer
+    :return: result of linear layer applied to last 3 dimensions
+    """
+    X1 = w_FC(x)
+    X2 = h_FC(X1.transpose(-1, -2))
+    X3 = c_FC(X2.transpose(-1, -3))
+    return X3.transpose(-1, -3).transpose(-1,-2)
+    #return X4.transpose(-1, -4).transpose(-1,-2)
+
+class test_DCTiDCTWrapper3D(nn.Module):
+    def __init__(self, spatial_dim):
+        super(test_DCTiDCTWrapper3D, self).__init__()
+
+        self.dct_c = LinearDCT(3, "dct", norm='ortho')
+        self.dct_h = LinearDCT(spatial_dim, "dct", norm='ortho')
+        self.dct_w = LinearDCT(spatial_dim, "dct", norm='ortho')
+        self.idct_c = LinearDCT(3, "idct", norm='ortho')
+        self.idct_h = LinearDCT(spatial_dim, "idct", norm='ortho')
+        self.idct_w = LinearDCT(spatial_dim, "idct", norm='ortho')
+
+
+    def low_pass(self, x):
+        _b, _c, _h, _w = x.shape
+        x[:, :_c//7,:_h//7,:_w//7] = 0
+        return x
+
+
+    def forward(self, x):
+
+        dct_x = t_apply_linear_4d(x, self.dct_c, self.dct_h, self.dct_w)
+        dct_x = self.low_pass(dct_x)
+        dct_x = t_apply_linear_4d(dct_x, self.idct_c, self.idct_h, self.idct_w)
+
+        return x + dct_x
 
 if __name__ == '__main__':
+
+    import matplotlib.pyplot as plt
+    import PIL
+    import torchvision.transforms as transforms
+    import torch
+    from torchvision.transforms.functional import to_pil_image
+    trans = transforms.Compose([transforms.Resize((320, 320)),
+                            transforms.ToTensor()
+                            ])
+    img = PIL.Image.open('../bird.jpg').convert('RGB')
+    img_t = trans(img)
+    img_t = img_t.unsqueeze(0) * 255.0
+
+    print(img_t[0].shape)
+    #plt.imsave("ori.png", transforms.ToPILImage()(img_t[0]).convert("RGB"))
+    plt.imsave("ori.png", img.convert("RGB"))
+
+    dct_filter = test_DCTiDCTWrapper3D(320)
+    dct_img_t = dct_filter(img_t)
+    plt.imsave("dct.jpg", transforms.ToPILImage()(dct_img_t[0]).convert("RGB"))
+    '''
+
     x = torch.Tensor(1000,4096)
     x.normal_(0,1)
     linear_dct = LinearDCT(4096, 'dct')
@@ -327,4 +407,5 @@ if __name__ == '__main__':
     linear_idct = LinearDCT(4096, 'idct')
     error = torch.abs(idct(x) - linear_idct(x))
     assert error.max() < 1e-3, (error, error.max())
+    '''
 
