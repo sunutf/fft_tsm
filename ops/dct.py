@@ -228,7 +228,7 @@ class DCTiDCTWrapper3D(nn.Module):
         self.mask_thw = nn.Conv3d(block.bn3.num_features, 1, 1)
         self.enhance_thw = nn.Sequential(
                 nn.Conv3d(block.bn3.num_features, 1, 1),
-                nn.ReLU()
+                nn.Tanh()
                 )
         
     def low_pass(self, x):
@@ -252,6 +252,18 @@ class DCTiDCTWrapper3D(nn.Module):
         #p_t = torch.log(F.softmax(mask_x, dim=-1).clamp(min=1e-8))
         #r_t = torch.cat([F.gumbel_softmax(p_t[b_i:b_i + 1], tau, True) for b_i in range(p_t.shape[0])]) 
     
+    def sigmoid_pass(self, x):
+        _b, _t, _c, _h, _w = x.shape
+        mask_x = self.mask_thw(x.permute(0,2,1,3,4)) #B,T,C,H,W => B,1,T,H,W
+        
+        mask_x = mask_x.view(_b, 1, _t*_h*_w).permute(0,2,1)
+        mask_x = nn.Sigmoid()(mask_x)
+        mask_x = mask_x.view(_b, _t, _h, _w, 1)
+        mask_x = mask_x.permute(0,1,4,2,3)
+        mask_x = mask_x.expand(-1, -1, _c, -1, -1)
+
+        return mask_x * x
+    
     def enhancement(self, x):
         _b, _t, _c, _h, _w = x.shape
         enh_x = self.enhance_thw(x.permute(0,2,1,3,4))
@@ -269,7 +281,8 @@ class DCTiDCTWrapper3D(nn.Module):
         
         dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
         #dct_x = self.low_pass(dct_x)
-        dct_x = self.adaptive_pass(dct_x)
+        #dct_x = self.adaptive_pass(dct_x)
+        dct_x = self.sigmoid_pass(dct_x)
         dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
         
         dct_x = self.enhancement(dct_x)
