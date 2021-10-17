@@ -30,6 +30,7 @@ class TSN(nn.Module):
         self.pretrain = pretrain
 
         self.dctidct = True
+        self.avgpoolNflatten = True
         self.is_shift = is_shift
         self.shift_div = shift_div
         self.shift_place = shift_place
@@ -117,13 +118,19 @@ class TSN(nn.Module):
                 print("Adding DCT-iDCT .....")
                 from ops.dct import make_low_pass_dctidct
                 make_low_pass_dctidct(self.base_model, self.num_segments)
-                
+            
+
             self.base_model.last_layer_name = 'fc'
             self.input_size = 224
             self.input_mean = [0.485, 0.456, 0.406]
             self.input_std = [0.229, 0.224, 0.225]
 
             self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
+            if self.avgpoolNflatten:
+                from ops.avgpool_n_flatten import make_avgpool_n_flatten
+                print("Adding avgpool&flatten")
+                last_channel_dim = 2048
+                make_avgpool_n_flatten(self.base_model,last_channel_dim)
 
             if self.modality == 'Flow':
                 self.input_mean = [0.5]
@@ -265,7 +272,7 @@ class TSN(nn.Module):
              'name': "lr10_bias"},
         ]
 
-    def forward(self, input, no_reshape=False):
+    def forward(self, input, no_reshape=False, tau=None):
         if not no_reshape:
             sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
 

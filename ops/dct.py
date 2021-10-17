@@ -230,7 +230,8 @@ class DCTiDCTWrapper3D(nn.Module):
 
         self.enhance_thw = nn.Sequential(
                 nn.Conv3d(block.bn3.num_features, 1, 1),
-                nn.Tanh()
+                nn.ReLU()
+                #nn.Tanh()
                 )
         
     def low_pass(self, x):
@@ -297,12 +298,14 @@ class DCTiDCTWrapper3D(nn.Module):
         x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w)
         
         
+        #dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
         dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
         #dct_x = self.low_pass(dct_x)
         #dct_x = self.adaptive_pass(dct_x)
-        #dct_x = self.sigmoid_pass(dct_x)
-        dct_x = self.hard_adaptive_pass(dct_x)
+        dct_x = self.sigmoid_pass(dct_x)
+        #dct_x = self.hard_adaptive_pass(dct_x, 0.67)
 
+        #dct_x = apply_linear_4d_woC(dct_x, self.idct_t, self.idct_h, self.idct_w)
         dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
         
         dct_x = self.enhancement(dct_x)
@@ -357,6 +360,19 @@ def apply_linear_3d(x, linear_layer):
     X3 = linear_layer(X2.transpose(-1, -3))
     return X3.transpose(-1, -3).transpose(-1, -2)
 
+
+def apply_linear_4d_woC(x, t_FC, h_FC, w_FC):
+    """Can be used with a LinearDCT layer to do a 3D DCT.
+    :param x: the input signal
+    :param linear_layer: any PyTorch Linear layer
+    :return: result of linear layer applied to last 3 dimensions
+    """
+    X1 = w_FC(x)
+    X2 = h_FC(X1.transpose(-1, -2))
+    #X3 = c_FC(X2.transpose(-1, -3))
+    X4 = t_FC(X2.transpose(-1, -4))
+    #return X4.transpose(-1, -4).transpose(-1, -3).transpose(-1,-2)
+    return X4.transpose(-1, -4).transpose(-1,-2)
 
 def apply_linear_4d(x, t_FC, c_FC, h_FC, w_FC):
     """Can be used with a LinearDCT layer to do a 3D DCT.
