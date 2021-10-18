@@ -230,8 +230,8 @@ class DCTiDCTWrapper3D(nn.Module):
 
         self.enhance_thw = nn.Sequential(
                 nn.Conv3d(block.bn3.num_features, 1, 1),
-                nn.ReLU()
-                #nn.Tanh()
+                #nn.ReLU()
+                nn.Tanh()
                 )
         
     def low_pass(self, x):

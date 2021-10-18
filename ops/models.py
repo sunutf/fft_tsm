@@ -127,10 +127,10 @@ class TSN(nn.Module):
 
             self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
             if self.avgpoolNflatten:
-                from ops.avgpool_n_flatten import make_avgpool_n_flatten
+                from ops.avgpool_n_flatten import make_pool_n_flatten
                 print("Adding avgpool&flatten")
                 last_channel_dim = 2048
-                make_avgpool_n_flatten(self.base_model,last_channel_dim)
+                make_pool_n_flatten('avg', self.base_model,last_channel_dim)
 
             if self.modality == 'Flow':
                 self.input_mean = [0.5]

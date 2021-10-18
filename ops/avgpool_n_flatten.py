@@ -22,12 +22,14 @@ class AvgPoolandFlatten(nn.Module):
         super(AvgPoolandFlatten, self).__init__()
         
         self.avgpoolHW = nn.AdaptiveAvgPool2d(4)
-        self.avgpoolC = nn.AdaptiveAvgPool1d(channel_dim//16)
+        #self.avgpoolC = nn.AdaptiveAvgPool1d(channel_dim//16)
+        self.fcC = nn.Conv2d(channel_dim, channel_dim//16, 1)
 
     def forward(self, x):
         _bt, _c, _h, _w = x.shape
-        x = self.avgpoolHW(x) #B*T,C,H,W => B*T,C,2,2
-        x = self.avgpoolC(x.view(-1, _c, 16).permute(0,2,1)) #B*T,C,2,2 => B*T,4,C => B*T,4,C//4
+        x = self.avgpoolHW(x) #B*T,C,H,W => B*T,C,4,4
+        x = self.fcC(x).view(-1,_c//16, 16).permute(0,2,1)  # => B*T,C//16,4,4 => B*T,16,C//16
+        #x = self.avgpoolC(x.view(-1, _c, 16).permute(0,2,1)) #B*T,C,4,4 => B*T,16,C => B*T,16,C//16
         x = torch.flatten(x, start_dim=1) #B*T, C
 
         return x
