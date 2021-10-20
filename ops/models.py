@@ -29,8 +29,8 @@ class TSN(nn.Module):
         self.img_feature_dim = img_feature_dim  # the dimension of the CNN feature to represent each frame
         self.pretrain = pretrain
 
-        self.dctidct = True
-        self.avgpoolNflatten = True
+        self.dctidct = False
+        self.avgpoolNflatten = False
         self.is_shift = is_shift
         self.shift_div = shift_div
         self.shift_place = shift_place
@@ -38,6 +38,7 @@ class TSN(nn.Module):
         self.fc_lr5 = fc_lr5
         self.temporal_pool = temporal_pool
         self.non_local = non_local
+        self.channel_non_local = True
 
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
@@ -101,6 +102,9 @@ class TSN(nn.Module):
 
     def _prepare_base_model(self, base_model):
         print('=> base model: {}'.format(base_model))
+        if self.consensus_type == 'apfl':
+            self.avgpoolT = torch.nn.AdaptiveAvgPool1d(4)
+            self.fcC = torch.nn.Conv1d(2048, 2048//4, 1)
 
         if 'resnet' in base_model:
             self.base_model = getattr(torchvision.models, base_model)(True if self.pretrain == 'imagenet' else False)
@@ -114,6 +118,10 @@ class TSN(nn.Module):
                 print('Adding non-local module...')
                 from ops.non_local import make_non_local
                 make_non_local(self.base_model, self.num_segments)
+            elif self.channel_non_local:
+                print('Adding channel-non-local module...')
+                from ops.channel_non_local import make_c_non_local
+                make_c_non_local(self.base_model, self.num_segments)
             elif self.dctidct:
                 print("Adding DCT-iDCT .....")
                 from ops.dct import make_low_pass_dctidct
@@ -283,7 +291,24 @@ class TSN(nn.Module):
             base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)
+        
+        if self.consensus_type == 'apfl':
+            base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
+            base_out = base_out.permute(0,2,1) #=>B,C,T
+            base_out = self.avgpoolT(base_out) 
+            base_out = self.fcC(base_out).permute(0,2,1) #=>B,4,C//4
+            base_out = torch.flatten(base_out, start_dim=1)
 
+            if self.dropout > 0:
+                base_out = self.new_fc(base_out)
+
+            if not self.before_softmax:
+                base_out = self.softmax(base_out)
+
+            return base_out
+
+
+            
         if self.dropout > 0:
             base_out = self.new_fc(base_out)
 
