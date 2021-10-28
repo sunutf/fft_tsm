@@ -12,7 +12,7 @@ import torch.optim
 from torch.nn.utils import clip_grad_norm_
 
 from ops.dataset import TSNDataSet
-from ops.models_rnn import TSN
+from ops.models import TSN
 from ops.transforms import *
 from opts import parser
 from ops import dataset_config
@@ -51,6 +51,7 @@ def main():
         args.store_name += '_nl'
     if args.suffix is not None:
         args.store_name += '_{}'.format(args.suffix)
+    args.store_name += "_set_transformer"
     print('storing name: ' + args.store_name)
 
     check_rootfolders()
@@ -70,9 +71,9 @@ def main():
                 is_shift=args.shift, shift_div=args.shift_div, shift_place=args.shift_place,
                 fc_lr5=not (args.tune_from and args.dataset in args.tune_from),
                 temporal_pool=args.temporal_pool,
-                non_local=args.non_local,
-				is_rnn=args.is_rnn, rnn_rate_list=args.rnn_rate_list, hidden_dim=args.hidden_dim)
-
+                non_local=args.non_local)
+				#is_rnn=args.is_rnn, rnn_rate_list=args.rnn_rate_list, hidden_dim=args.hidden_dim)
+    
     crop_size = model.crop_size
     scale_size = model.scale_size
     input_mean = model.input_mean
@@ -112,6 +113,9 @@ def main():
             if k not in model_dict and k.replace('.net', '') in model_dict:
                 print('=> Load after remove .net: ', k)
                 replace_dict.append((k, k.replace('.net', '')))
+            if ".layer4.2" in k:
+                replace_dict.append((k, k.replace('.layer4.2', '.layer4.2.block')))
+                
         for k, v in model_dict.items():
             if k not in sd and k.replace('.net', '') in sd:
                 print('=> Load after adding .net: ', k)
