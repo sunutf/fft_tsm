@@ -5,10 +5,9 @@
 
 from torch import nn
 
-from ops.basic_ops import ConsensusModule
+from ops.basic_ops import ConsensusModule, Identity
 from ops.transforms import *
 from torch.nn.init import normal_, constant_
-
 
 class TSN(nn.Module):
     def __init__(self, num_class, num_segments, modality,
@@ -29,6 +28,7 @@ class TSN(nn.Module):
         self.img_feature_dim = img_feature_dim  # the dimension of the CNN feature to represent each frame
         self.pretrain = pretrain
 
+        self.set_transformer = True
         self.dctidct = False
         self.avgpoolNflatten = False
         self.is_shift = is_shift
@@ -38,8 +38,7 @@ class TSN(nn.Module):
         self.fc_lr5 = fc_lr5
         self.temporal_pool = temporal_pool
         self.non_local = non_local
-        self.channel_non_local = True
-
+        self.channel_non_local = False
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
 
@@ -114,26 +113,36 @@ class TSN(nn.Module):
                 make_temporal_shift(self.base_model, self.num_segments,
                                     n_div=self.shift_div, place=self.shift_place, temporal_pool=self.temporal_pool)
 
+            if self.channel_non_local:
+                print('Adding channel-non-local module...')
+                from ops.channel_non_local import make_c_non_local
+                make_c_non_local(self.base_model, self.num_segments)
             if self.non_local:
                 print('Adding non-local module...')
                 from ops.non_local import make_non_local
                 make_non_local(self.base_model, self.num_segments)
-            elif self.channel_non_local:
-                print('Adding channel-non-local module...')
-                from ops.channel_non_local import make_c_non_local
-                make_c_non_local(self.base_model, self.num_segments)
+            
+
             elif self.dctidct:
                 print("Adding DCT-iDCT .....")
                 from ops.dct import make_low_pass_dctidct
                 make_low_pass_dctidct(self.base_model, self.num_segments)
-            
+           
+            if self.set_transformer:
+                print("Adding Set-Transformer")
+                from ops.set_transformer import make_set_transformer
+                make_set_transformer(self.base_model, self.num_segments)
 
             self.base_model.last_layer_name = 'fc'
             self.input_size = 224
             self.input_mean = [0.485, 0.456, 0.406]
             self.input_std = [0.229, 0.224, 0.225]
-
-            self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
+            
+            if self.set_transformer:
+                self.base_model.avgpool = Identity()
+            else:
+                self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
+                
             if self.avgpoolNflatten:
                 from ops.avgpool_n_flatten import make_pool_n_flatten
                 print("Adding avgpool&flatten")
@@ -281,6 +290,7 @@ class TSN(nn.Module):
         ]
 
     def forward(self, input, no_reshape=False, tau=None):
+ 
         if not no_reshape:
             sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
 
@@ -291,7 +301,7 @@ class TSN(nn.Module):
             base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)
-        
+
         if self.consensus_type == 'apfl':
             base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
             base_out = base_out.permute(0,2,1) #=>B,C,T
@@ -306,9 +316,8 @@ class TSN(nn.Module):
                 base_out = self.softmax(base_out)
 
             return base_out
-
-
-            
+        
+        
         if self.dropout > 0:
             base_out = self.new_fc(base_out)
 
@@ -316,12 +325,16 @@ class TSN(nn.Module):
             base_out = self.softmax(base_out)
 
         if self.reshape:
-            if self.is_shift and self.temporal_pool:
-                base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
+            if not self.set_transformer:    
+                if self.is_shift and self.temporal_pool:
+                    base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
+                else:
+                    base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
+                output = self.consensus(base_out)
             else:
-                base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
-            output = self.consensus(base_out)
-            return output.squeeze(1)
+                output = base_out
+                
+        return output.squeeze(1)
 
     def _get_diff(self, input, keep_rgb=False):
         input_c = 3 if self.modality in ["RGB", "RGBDiff"] else 2
