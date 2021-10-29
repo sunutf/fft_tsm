@@ -24,6 +24,8 @@ parser.add_argument('--img_feature_dim', default=256, type=int, help="the featur
 parser.add_argument('--suffix', type=str, default=None)
 parser.add_argument('--pretrain', type=str, default='imagenet')
 parser.add_argument('--tune_from', type=str, default=None, help='fine-tune from checkpoint')
+parser.add_argument('--freeze', default=False, action="store_true", help='freeze when fine-tune')
+
 parser.add_argument('--rescale_to', default=224, type=int, help="the feature dimension for each frame")
 
 
@@ -79,3 +81,5 @@ parser.add_argument('--dense_sample', default=False, action="store_true", help='
 parser.add_argument('--is_rnn', default=False, action="store_true", help='use RNN for models')
 parser.add_argument('--rnn_rate_list', default=[1], type=int, nargs='+', help='list of update rate at rnns')
 parser.add_argument('--hidden_dim', default=512, type=int, help='hidden dim of 512')
+parser.add_argument('--init_tau', default=5.0, type=float, help='init tau')
+parser.add_argument('--exp_decay_factor', default=0.05, type=float, help='annealing factor')
