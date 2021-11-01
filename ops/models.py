@@ -28,8 +28,9 @@ class TSN(nn.Module):
         self.img_feature_dim = img_feature_dim  # the dimension of the CNN feature to represent each frame
         self.pretrain = pretrain
 
-        self.set_transformer = True
+        self.set_transformer = False
         self.dctidct = False
+        self.channel_dctidct = True
         self.avgpoolNflatten = False
         self.is_shift = is_shift
         self.shift_div = shift_div
@@ -128,6 +129,10 @@ class TSN(nn.Module):
                 from ops.dct import make_low_pass_dctidct
                 make_low_pass_dctidct(self.base_model, self.num_segments)
            
+            elif self.channel_dctidct:
+                print("Adding channel  DCT-iDCT .....")
+                from ops.channel_dct import make_channel_dctidct
+                make_channel_dctidct(self.base_model, self.num_segments)
             if self.set_transformer:
                 print("Adding Set-Transformer")
                 from ops.set_transformer import make_set_transformer
@@ -309,13 +314,8 @@ class TSN(nn.Module):
             base_out = self.fcC(base_out).permute(0,2,1) #=>B,4,C//4
             base_out = torch.flatten(base_out, start_dim=1)
 
-            if self.dropout > 0:
-                base_out = self.new_fc(base_out)
-
-            if not self.before_softmax:
-                base_out = self.softmax(base_out)
-
-            return base_out
+        if self.set_transformer:
+            return base_out.squeeze(1)
         
         
         if self.dropout > 0:
@@ -325,14 +325,11 @@ class TSN(nn.Module):
             base_out = self.softmax(base_out)
 
         if self.reshape:
-            if not self.set_transformer:    
-                if self.is_shift and self.temporal_pool:
-                    base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
-                else:
-                    base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
-                output = self.consensus(base_out)
+            if self.is_shift and self.temporal_pool:
+                base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
             else:
-                output = base_out
+                base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
+            output = self.consensus(base_out)
                 
         return output.squeeze(1)
 
