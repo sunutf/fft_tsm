@@ -97,27 +97,27 @@ class _NonLocalBlockND(nn.Module):
         return z
 
 
-class NONLocalBlock1D(_NonLocalBlockND):
+class CNONLocalBlock1D(_NonLocalBlockND):
     def __init__(self, in_channels, inter_channels_q=None, inter_channels_kv=None, sub_sample=True, bn_layer=True):
-        super(NONLocalBlock1D, self).__init__(in_channels,
+        super(CNONLocalBlock1D, self).__init__(in_channels,
                                               inter_channels_q = inter_channels_q,
                                               inter_channels_kv = inter_channels_kv,
                                               dimension=1, sub_sample=sub_sample,
                                               bn_layer=bn_layer)
 
 
-class NONLocalBlock2D(_NonLocalBlockND):
+class CNONLocalBlock2D(_NonLocalBlockND):
     def __init__(self, in_channels, inter_channels_q=None, inter_channels_kv=None, sub_sample=True, bn_layer=True):
-        super(NONLocalBlock2D, self).__init__(in_channels,
+        super(CNONLocalBlock2D, self).__init__(in_channels,
                                               inter_channels_q = inter_channels_q,
                                               inter_channels_kv = inter_channels_kv,
                                               dimension=2, sub_sample=sub_sample,
                                               bn_layer=bn_layer)
 
 
-class NONLocalBlock3D(_NonLocalBlockND):
+class CNONLocalBlock3D(_NonLocalBlockND):
     def __init__(self, in_channels, inter_channels_q=None, inter_channels_kv=None, sub_sample=False, bn_layer=True):
-        super(NONLocalBlock3D, self).__init__(in_channels,
+        super(CNONLocalBlock3D, self).__init__(in_channels,
                                               inter_channels_q = inter_channels_q,
                                               inter_channels_kv = inter_channels_kv,
                                               dimension=3, sub_sample=sub_sample,
@@ -128,7 +128,7 @@ class CNL3DWrapper(nn.Module):
     def __init__(self, block, n_segment):
         super(CNL3DWrapper, self).__init__()
         self.block = block
-        self.nl = NONLocalBlock3D(block.bn3.num_features)
+        self.cnl = CNONLocalBlock3D(block.bn3.num_features)
         self.n_segment = n_segment
 
     def forward(self, x):
@@ -136,7 +136,7 @@ class CNL3DWrapper(nn.Module):
 
         nt, c, h, w = x.size()
         x = x.view(nt // self.n_segment, self.n_segment, c, h, w).transpose(1, 2)  # n, c, t, h, w
-        x = self.nl(x)
+        x = self.cnl(x)
         x = x.transpose(1, 2).contiguous().view(nt, c, h, w)
         return x
 
@@ -145,6 +145,7 @@ def make_c_non_local(net, n_segment):
     import torchvision
     import archs
     if isinstance(net, torchvision.models.ResNet):
+        '''
         net.layer2 = nn.Sequential(
             CNL3DWrapper(net.layer2[0], n_segment),
             net.layer2[1],
@@ -159,6 +160,13 @@ def make_c_non_local(net, n_segment):
             CNL3DWrapper(net.layer3[4], n_segment),
             net.layer3[5],
         )
+        '''
+        net.layer4 = nn.Sequential(
+            CNL3DWrapper(net.layer4[0], n_segment),
+            net.layer4[1],
+            CNL3DWrapper(net.layer4[2], n_segment),
+        )
+
     else:
         raise NotImplementedError
 

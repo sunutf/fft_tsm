@@ -175,7 +175,7 @@ def idct_3d(X, norm=None):
     x3 = idct(x2.transpose(-1, -3), norm=norm)
     return x3.transpose(-1, -3).transpose(-1, -2)
 
-def make_low_pass_dctidct(net, n_segments):
+def make_pass_dctidct(net, n_segments):
     import torchvision
     import archs
     res50_spatial_feat_dim = {
@@ -186,26 +186,22 @@ def make_low_pass_dctidct(net, n_segments):
     
     if isinstance(net, torchvision.models.ResNet):
         net.layer2 = nn.Sequential(
-            net.layer2[0],
+            DCTiDCTWrapper3D(net.layer2[0], n_segments, res50_spatial_feat_dim["layer2"]),
             net.layer2[1],
-            net.layer2[2],
-            DCTiDCTWrapper3D(net.layer2[3], n_segments, res50_spatial_feat_dim["layer2"]),
+            DCTiDCTWrapper3D(net.layer2[2], n_segments, res50_spatial_feat_dim["layer2"]),
+            net.layer2[3]
            ) 
         
         net.layer3 = nn.Sequential(
-            net.layer3[0],
+            DCTiDCTWrapper3D(net.layer3[0], n_segments, res50_spatial_feat_dim["layer3"]),
             net.layer3[1],
-            net.layer3[2],
+            DCTiDCTWrapper3D(net.layer3[2], n_segments, res50_spatial_feat_dim["layer3"]),
             net.layer3[3],
-            net.layer3[4],
-            DCTiDCTWrapper3D(net.layer3[5], n_segments, res50_spatial_feat_dim["layer3"]),
+            DCTiDCTWrapper3D(net.layer3[4], n_segments, res50_spatial_feat_dim["layer3"]),
+            net.layer3[5],
            ) 
 
-        net.layer4 = nn.Sequential(
-            net.layer4[0],
-            net.layer4[1],
-            DCTiDCTWrapper3D(net.layer4[2], n_segments, res50_spatial_feat_dim["layer4"]),
-           )
+       
     else:
         raise NotImplementedError 
 
@@ -216,20 +212,21 @@ class DCTiDCTWrapper3D(nn.Module):
     
         self.block = block
         self.num_segments = n_segments
-        self.dct_c = LinearDCT(block.bn3.num_features, "dct", norm='ortho')    
+        #self.dct_c = LinearDCT(block.bn3.num_features, "dct", norm='ortho')    
         self.dct_h = LinearDCT(spatial_dim, "dct", norm='ortho')    
         self.dct_w = LinearDCT(spatial_dim, "dct", norm='ortho')    
         self.dct_t = LinearDCT(n_segments, "dct", norm='ortho')    
-        self.idct_c = LinearDCT(block.bn3.num_features, "idct", norm='ortho')    
+        #self.idct_c = LinearDCT(block.bn3.num_features, "idct", norm='ortho')    
         self.idct_h = LinearDCT(spatial_dim, "idct", norm='ortho')    
         self.idct_w = LinearDCT(spatial_dim, "idct", norm='ortho')    
         self.idct_t = LinearDCT(n_segments, "idct", norm='ortho')
         
         self.mask_thw = nn.Conv3d(block.bn3.num_features, 1, 1)
-        self.hard_mask_thw = nn.Conv3d(block.bn3.num_features, 2, 1)
+        #self.hard_mask_thw = nn.Conv3d(block.bn3.num_features, 2, 1)
 
         self.enhance_thw = nn.Sequential(
-                nn.Conv3d(block.bn3.num_features, 1, 1),
+                #nn.Conv3d(block.bn3.num_features, 1, 1),
+                nn.Conv3d(block.bn3.num_features, block.bn3.num_features, 1),
                 #nn.ReLU()
                 nn.Tanh()
                 )
@@ -288,25 +285,28 @@ class DCTiDCTWrapper3D(nn.Module):
         enh_x = self.enhance_thw(x.permute(0,2,1,3,4))
 
         enh_x = enh_x.permute(0,2,1,3,4)
-        enh_x = enh_x.expand(-1, -1, _c, -1, -1)
+        return enh_x
+    
+#        enh_x = enh_x.expand(-1, -1, _c, -1, -1)
         
-        return enh_x * x
+ #       return enh_x * x
 
     def forward(self, x):
-        _bt, _c, _h, _w = x.shape
         x = self.block(x)
+        
+        _bt, _c, _h, _w = x.shape
         x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w)
         
         
-        #dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
-        dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
+        dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
+       # dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
         #dct_x = self.low_pass(dct_x)
         #dct_x = self.adaptive_pass(dct_x)
         dct_x = self.sigmoid_pass(dct_x)
         #dct_x = self.hard_adaptive_pass(dct_x, 0.67)
 
-        #dct_x = apply_linear_4d_woC(dct_x, self.idct_t, self.idct_h, self.idct_w)
-        dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
+        dct_x = apply_linear_4d_woC(dct_x, self.idct_t, self.idct_h, self.idct_w)
+        #dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
         
         dct_x = self.enhancement(dct_x)
 

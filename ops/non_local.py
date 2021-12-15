@@ -82,6 +82,16 @@ class _NonLocalBlockND(nn.Module):
         y = torch.matmul(f_div_C, g_x)
         y = y.permute(0, 2, 1).contiguous()
         y = y.view(batch_size, self.inter_channels, *x.size()[2:])
+        '''
+        f1 = torch.matmul(theta_x.permute(0,2,1), phi_x.permute(0,2,1))
+        f1_div_C = F.softmax(f1, dim=-1)
+
+        y1 = torch.matmul(g_x, f1_div_C)
+        y1 = y1.permute(0, 2, 1).contiguous()
+        y1 = y1.view(batch_size, self.inter_channels, *x.size()[2:])
+
+        y = y + y1
+        '''
         W_y = self.W(y)
         z = W_y + x
 
@@ -105,7 +115,7 @@ class NONLocalBlock2D(_NonLocalBlockND):
 
 
 class NONLocalBlock3D(_NonLocalBlockND):
-    def __init__(self, in_channels, inter_channels=None, sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, sub_sample=False, bn_layer=True):
         super(NONLocalBlock3D, self).__init__(in_channels,
                                               inter_channels=inter_channels,
                                               dimension=3, sub_sample=sub_sample,
@@ -133,12 +143,14 @@ def make_non_local(net, n_segment):
     import torchvision
     import archs
     if isinstance(net, torchvision.models.ResNet):
+        
         net.layer2 = nn.Sequential(
             NL3DWrapper(net.layer2[0], n_segment),
             net.layer2[1],
             NL3DWrapper(net.layer2[2], n_segment),
             net.layer2[3],
         )
+        
         net.layer3 = nn.Sequential(
             NL3DWrapper(net.layer3[0], n_segment),
             net.layer3[1],
