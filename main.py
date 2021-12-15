@@ -71,7 +71,10 @@ def main():
                 is_shift=args.shift, shift_div=args.shift_div, shift_place=args.shift_place,
                 fc_lr5=not (args.tune_from and args.dataset in args.tune_from),
                 temporal_pool=args.temporal_pool,
-                non_local=args.non_local)
+                non_local=args.non_local,
+                channel_non_local=args.cnon_local,
+                dctidct=args.dctidct,
+                channel_dctidct=args.cdctidct)
 				#is_rnn=args.is_rnn, rnn_rate_list=args.rnn_rate_list, hidden_dim=args.hidden_dim)
     
     crop_size = model.crop_size
@@ -80,7 +83,6 @@ def main():
     input_std = model.input_std
     policies = model.get_optim_policies()
     train_augmentation = model.get_augmentation(flip=False if 'something' in args.dataset or 'jester' in args.dataset else True)
-
     model = torch.nn.DataParallel(model, device_ids=args.gpus).cuda()
 
     optimizer = torch.optim.SGD(policies,

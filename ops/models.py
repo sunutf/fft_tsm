@@ -16,7 +16,7 @@ class TSN(nn.Module):
                  dropout=0.8, img_feature_dim=256,
                  crop_num=1, partial_bn=True, print_spec=True, pretrain='imagenet',
                  is_shift=False, shift_div=8, shift_place='blockres', fc_lr5=False,
-                 temporal_pool=False, non_local=False):
+                 temporal_pool=False, non_local=False, channel_non_local=False, dctidct=False, channel_dctidct=False):
         super(TSN, self).__init__()
         self.modality = modality
         self.num_segments = num_segments
@@ -29,8 +29,7 @@ class TSN(nn.Module):
         self.pretrain = pretrain
 
         self.set_transformer = False
-        self.dctidct = False
-        self.channel_dctidct = True
+
         self.avgpoolNflatten = False
         self.is_shift = is_shift
         self.shift_div = shift_div
@@ -38,8 +37,11 @@ class TSN(nn.Module):
         self.base_model_name = base_model
         self.fc_lr5 = fc_lr5
         self.temporal_pool = temporal_pool
+        
+        self.dctidct = dctidct
+        self.channel_dctidct = channel_dctidct
         self.non_local = non_local
-        self.channel_non_local = False
+        self.channel_non_local = channel_non_local
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
 
@@ -126,8 +128,8 @@ class TSN(nn.Module):
 
             elif self.dctidct:
                 print("Adding DCT-iDCT .....")
-                from ops.dct import make_low_pass_dctidct
-                make_low_pass_dctidct(self.base_model, self.num_segments)
+                from ops.dct import make_pass_dctidct
+                make_pass_dctidct(self.base_model, self.num_segments)
            
             elif self.channel_dctidct:
                 print("Adding channel  DCT-iDCT .....")
@@ -143,7 +145,7 @@ class TSN(nn.Module):
             self.input_mean = [0.485, 0.456, 0.406]
             self.input_std = [0.229, 0.224, 0.225]
             
-            if self.set_transformer:
+            if self.set_transformer or self.diff_diff2diff_features:
                 self.base_model.avgpool = Identity()
             else:
                 self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
@@ -317,7 +319,8 @@ class TSN(nn.Module):
         if self.set_transformer:
             return base_out.squeeze(1)
         
-        
+        if self.diff_diffdiff_features:
+            
         if self.dropout > 0:
             base_out = self.new_fc(base_out)
 
