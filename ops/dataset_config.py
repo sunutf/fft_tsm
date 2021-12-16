@@ -5,7 +5,7 @@
 
 import os
 
-ROOT_DATASET = '/dataset/'  # '/data/jilin/'
+ROOT_DATASET = '/data/to_docker/datasets/'  # '/data/jilin/'
 
 
 def return_ucf101(modality):
