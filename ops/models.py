@@ -145,7 +145,7 @@ class TSN(nn.Module):
             self.input_mean = [0.485, 0.456, 0.406]
             self.input_std = [0.229, 0.224, 0.225]
             
-            if self.set_transformer or self.diff_diff2diff_features:
+            if self.set_transformer:
                 self.base_model.avgpool = Identity()
             else:
                 self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
@@ -318,8 +318,6 @@ class TSN(nn.Module):
 
         if self.set_transformer:
             return base_out.squeeze(1)
-        
-        if self.diff_diffdiff_features:
             
         if self.dropout > 0:
             base_out = self.new_fc(base_out)
