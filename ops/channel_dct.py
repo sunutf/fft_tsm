@@ -185,13 +185,14 @@ def make_channel_dctidct(net, n_segments):
     }
     
     if isinstance(net, torchvision.models.ResNet):
+        '''
         net.layer2 = nn.Sequential(
             net.layer2[0],
             net.layer2[1],
             net.layer2[2],
             cDCTiDCTWrapper3D(net.layer2[3], n_segments, res50_spatial_feat_dim["layer2"]),
            ) 
-        
+        '''
         net.layer3 = nn.Sequential(
             net.layer3[0],
             net.layer3[1],

@@ -185,21 +185,28 @@ def make_pass_dctidct(net, n_segments):
     }
     
     if isinstance(net, torchvision.models.ResNet):
+        '''
         net.layer2 = nn.Sequential(
             DCTiDCTWrapper3D(net.layer2[0], n_segments, res50_spatial_feat_dim["layer2"]),
             net.layer2[1],
             DCTiDCTWrapper3D(net.layer2[2], n_segments, res50_spatial_feat_dim["layer2"]),
             net.layer2[3]
            ) 
-        
+        '''
         net.layer3 = nn.Sequential(
-            DCTiDCTWrapper3D(net.layer3[0], n_segments, res50_spatial_feat_dim["layer3"]),
+            net.layer3[0],
             net.layer3[1],
-            DCTiDCTWrapper3D(net.layer3[2], n_segments, res50_spatial_feat_dim["layer3"]),
+            net.layer3[2],
             net.layer3[3],
-            DCTiDCTWrapper3D(net.layer3[4], n_segments, res50_spatial_feat_dim["layer3"]),
-            net.layer3[5],
-           ) 
+            net.layer3[4],
+            DCTiDCTWrapper3D(net.layer3[5], n_segments, res50_spatial_feat_dim["layer3"]),
+           )
+        net.layer4 = nn.Sequential(
+            net.layer4[0],
+            net.layer4[1],
+            DCTiDCTWrapper3D(net.layer4[2], n_segments, res50_spatial_feat_dim["layer4"]),
+           )
+        
 
        
     else:
