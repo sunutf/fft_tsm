@@ -16,7 +16,7 @@ class TSN(nn.Module):
                  dropout=0.8, img_feature_dim=256,
                  crop_num=1, partial_bn=True, print_spec=True, pretrain='imagenet',
                  is_shift=False, shift_div=8, shift_place='blockres', fc_lr5=False,
-                 temporal_pool=False, non_local=False, channel_non_local=False, dctidct=False, channel_dctidct=False, fft=False):
+                 temporal_pool=False, non_local=False, channel_non_local=False, dctidct=False, channel_dctidct=False, fft=False, channel_fft=False):
         super(TSN, self).__init__()
         self.modality = modality
         self.num_segments = num_segments
@@ -43,6 +43,7 @@ class TSN(nn.Module):
         self.non_local = non_local
         self.channel_non_local = channel_non_local
         self.fft = fft
+        self.channel_fft = channel_fft
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
 
@@ -140,6 +141,12 @@ class TSN(nn.Module):
                 print("Adding FFT-iFFT .....")
                 from ops.fft import make_pass_fftifft
                 make_pass_fftifft(self.base_model, self.num_segments)
+            elif self.channel_fft:
+                print("Adding channel FFT-iFFT .....")
+                from ops.channel_fft import make_pass_channel_fftifft
+                make_pass_channel_fftifft(self.base_model, self.num_segments)
+            
+            
             if self.set_transformer:
                 print("Adding Set-Transformer")
                 from ops.set_transformer import make_set_transformer

@@ -51,7 +51,7 @@ def main():
         args.store_name += '_nl'
     if args.suffix is not None:
         args.store_name += '_{}'.format(args.suffix)
-    args.store_name += "_fft"
+    #args.store_name += "_channel_fft_res34_gelu"
     print('storing name: ' + args.store_name)
 
     check_rootfolders()
@@ -75,7 +75,8 @@ def main():
                 channel_non_local=args.cnon_local,
                 dctidct=args.dctidct,
                 channel_dctidct=args.cdctidct,
-                fft=args.fft
+                fft=args.fft,
+                channel_fft=args.cfft
                 )
 				#is_rnn=args.is_rnn, rnn_rate_list=args.rnn_rate_list, hidden_dim=args.hidden_dim)
     

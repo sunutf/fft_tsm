@@ -81,6 +81,7 @@ parser.add_argument('--cnon_local', default=False, action="store_true", help='ad
 parser.add_argument('--dctidct', default=False, action="store_true", help='add dctidct block')
 parser.add_argument('--cdctidct', default=False, action="store_true", help='add channel dctidct block')
 parser.add_argument('--fft', default=False, action="store_true", help='add fft  block')
+parser.add_argument('--cfft', default=False, action="store_true", help='add channel fft  block')
 
 
 parser.add_argument('--dense_sample', default=False, action="store_true", help='use dense sample for video dataset')
