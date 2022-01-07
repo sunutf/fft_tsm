@@ -241,11 +241,14 @@ class DCTiDCTWrapper3D(nn.Module):
 
         self.enhance_thw = nn.Sequential(
                 #nn.Conv3d(block.bn3.num_features, 1, 1),
-                nn.Conv3d(block.bn3.num_features, block.bn3.num_features, 1),
+                nn.Conv3d(block.bn3.num_features, block.bn3.num_features,1),
+                nn.GELU(),
+                #nn.Dropout(0.5),
+                #nn.Conv3d(block.bn3.num_features, block.bn3.num_features, 1),
                 #nn.ReLU()
-                nn.GELU()
+                #nn.Dropout(0.5),
                 )
-        
+    
     def enhancement(self, x):
         _b, _t, _c, _h, _w = x.shape
         enh_x = self.enhance_thw(x.permute(0,2,1,3,4))
@@ -266,17 +269,19 @@ class DCTiDCTWrapper3D(nn.Module):
         
         dct_x = x.permute(0,1,3,4,2) #B,T,C,H,W -> B,T,H,W,C
         
-        dct_x = torch.fft.rfftn(dct_x, dim=(4), norm='ortho')
+        dct_x = torch.fft.rfftn(dct_x.float(), dim=(4), norm='ortho')
         weight = torch.view_as_complex(self.complex)
         dct_x = dct_x* weight
         #dct_x = torch.sigmoid(dct_x)
         #dct_x = torch.nn.Softmax(dim =1)(abs(dct_x.view(_bt//_t, -1, _c)))
         #dct_x = dct_x.view(_bt//_t, _t, _h, -1, _c)
         dct_x = torch.fft.irfftn(dct_x, s=(_c), dim=(4), norm='ortho')
+        #dct_x = torch.fft.ifftn(dct_x, s=(_c), dim=(4), norm='ortho')
+        #dct_x = torch.cat([dct_x.real, dct_x.imag], dim=-1)
         dct_x = dct_x.permute(0,1,4,2,3)
         dct_x = self.enhancement(dct_x)
         
-        return (x + dct_x).reshape(_bt, _c, _h, _w)
+        return (x + dct_x.half()).reshape(_bt, _c, _h, _w)
         
 
 class LinearDCT(nn.Linear):

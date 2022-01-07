@@ -2,6 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ops.torchlex import softmax
+
+from torch.cuda.amp import autocast
 
 def dct1(x):
     """
@@ -179,35 +182,40 @@ def make_pass_fftifft(net, n_segments):
     import torchvision
     import archs
     res50_spatial_feat_dim = {
+        "layer1" : 56, 
         "layer2" : 28,
         "layer3" : 14,
         "layer4" : 7
     }
     
     if isinstance(net, torchvision.models.ResNet):
-        '''
+        """ 
+        net.layer1 = nn.Sequential(
+            DCTiDCTWrapper3D(net.layer1[0], n_segments, res50_spatial_feat_dim["layer1"]),
+            net.layer1[1],
+            DCTiDCTWrapper3D(net.layer1[2], n_segments, res50_spatial_feat_dim["layer1"]),
+           ) 
+        
         net.layer2 = nn.Sequential(
             DCTiDCTWrapper3D(net.layer2[0], n_segments, res50_spatial_feat_dim["layer2"]),
             net.layer2[1],
             DCTiDCTWrapper3D(net.layer2[2], n_segments, res50_spatial_feat_dim["layer2"]),
             net.layer2[3]
-           ) 
-        '''
+           )
+        """
         net.layer3 = nn.Sequential(
-            net.layer3[0],
+            DCTiDCTWrapper3D(net.layer3[0], n_segments, res50_spatial_feat_dim["layer3"]),
             net.layer3[1],
-            net.layer3[2],
+            DCTiDCTWrapper3D(net.layer3[2], n_segments, res50_spatial_feat_dim["layer3"]),
             net.layer3[3],
-            net.layer3[4],
-            DCTiDCTWrapper3D(net.layer3[5], n_segments, res50_spatial_feat_dim["layer3"]),
+            DCTiDCTWrapper3D(net.layer3[4], n_segments, res50_spatial_feat_dim["layer3"]),
+            net.layer3[5],
            )
         net.layer4 = nn.Sequential(
-            net.layer4[0],
+            DCTiDCTWrapper3D(net.layer4[0], n_segments, res50_spatial_feat_dim["layer4"]),
             net.layer4[1],
             DCTiDCTWrapper3D(net.layer4[2], n_segments, res50_spatial_feat_dim["layer4"]),
            )
-        
-
        
     else:
         raise NotImplementedError 
@@ -237,7 +245,8 @@ class DCTiDCTWrapper3D(nn.Module):
                 #nn.Conv3d(block.bn3.num_features, 1, 1),
                 nn.Conv3d(block.bn3.num_features, block.bn3.num_features, 1),
                 #nn.ReLU()
-                nn.Tanh()
+                nn.GELU(),
+                nn.Dropout(0.5)
                 )
         
     def enhancement(self, x):
@@ -255,14 +264,20 @@ class DCTiDCTWrapper3D(nn.Module):
         x = self.block(x)
         
         _bt, _c, _h, _w = x.shape
-        x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w)
+        _t = self.num_segments
+        x = x.view(_bt//_t, _t, _c, _h, _w)
         
-        dct_x = x.permute(0,1,3,4,2) 
-        
-        dct_x = torch.fft.rfftn(dct_x, dim=(1,2,3), norm='ortho')
+        dct_x = x.permute(0,1,3,4,2) #B,T,C,H,W -> B,T,H,W,C
+        #with autocast(enabled=False):   
+        dct_x = torch.fft.rfftn(dct_x.float(), dim=(1,2,3), norm='ortho')
         weight = torch.view_as_complex(self.complex)
         dct_x = dct_x* weight
-        dct_x = torch.fft.irfftn(dct_x, s=(self.num_segments, _h, _w), dim=(1, 2, 3), norm='ortho')
+        #dct_x = torch.sigmoid(dct_x)
+        #dct_x = torch.nn.Softmax(dim =1)(abs(dct_x.view(_bt//_t, -1, _c)))
+        #dct_x = dct_x.view(_bt//_t, _t, _h, -1, _c)
+        dct_x = torch.fft.irfftn(dct_x, s=(_t, _h, _w), dim=(1, 2, 3), norm='ortho')
+        #dct_x = torch.fft.ifftn(dct_x, s=(_t, _h, _w), dim=(1, 2, 3), norm='ortho')
+        #dct_x = torch.cat([dct_x.real, dct_x.imag], dim=-1)
         dct_x = dct_x.permute(0,1,4,2,3)
         dct_x = self.enhancement(dct_x)
         

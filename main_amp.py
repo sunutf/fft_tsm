@@ -25,11 +25,13 @@ import wandb
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
+from torch.cuda.amp import autocast
+from torch.cuda.amp import GradScaler 
 
 best_prec1 = 0
 
 def main():
-    global args, best_prec1
+    global args, best_prec1, scaler
     args = parser.parse_args()
 
     num_class, args.train_list, args.val_list, args.root_path, prefix = dataset_config.return_dataset(args.dataset,
@@ -93,6 +95,7 @@ def main():
                                 args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
+    scaler = GradScaler() 
     if args.resume:
         if args.temporal_pool:  # early temporal pool so that we can load the state_dict
             make_temporal_pool(model.module.base_model, args.num_segments)
@@ -294,8 +297,9 @@ def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
         target_var = torch.autograd.Variable(target)
 
         # compute output
-        output = model(input_var)
-        loss = criterion(output, target_var[:, 0])
+        with autocast():
+            output = model(input_var)
+            loss = criterion(output, target_var[:, 0])
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target[:, 0], topk=(1, 5))
@@ -304,12 +308,15 @@ def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
         top5.update(prec5.item(), input.size(0))
         
         # compute gradient and do SGD step
-        loss.backward()
+        scaler.scale(loss).backward()
+        #loss.backward()
 
         if args.clip_gradient is not None:
             total_norm = clip_grad_norm_(model.parameters(), args.clip_gradient)
 
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
+        #optimizer.step()
         optimizer.zero_grad()
 
         # measure elapsed time
