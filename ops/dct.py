@@ -317,11 +317,11 @@ class DCTiDCTWrapper3D(nn.Module):
         
         mask_l = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
         mask_l[:, :, _h//4:, _w//4:, :] = 0
-        mask_l[:, _t//4:, :, :, :] = 0
+        # mask_l[:, :, _h//4:, _w//4:, :] = 0
 
         # mask_h = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
-        mask_l[:, :, :_h//4*3, :_w//4*3, :] = 0
-        mask_h[:, :_t//4*3, :, :, :] = 0
+        # mask_l[:, :, :_h//4*3, :_w//4*3, :] = 0
+        # mask_h[:, :_t//4*3, :, :, :] = 0
 
 
         dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
