@@ -13,7 +13,7 @@ def dct1(x):
     x_shape = x.shape
     x = x.view(-1, x_shape[-1])
 
-    return torch.view_as_real(torch.fft.fft(torch.cat([x, x.flip([1])[:, 1:-1]], dim=1)))[:, :, 0].view(*x_shape)
+    return torch.rfft(torch.cat([x, x.flip([1])[:, 1:-1]], dim=1), 1)[:, :, 0].view(*x_shape)
 
 
 def idct1(X):
@@ -46,7 +46,7 @@ def dct(x, norm=None):
 
     v = torch.cat([x[:, ::2], x[:, 1::2].flip([1])], dim=1)
 
-    Vc = torch.view_as_real(torch.fft.fft(v, dim=1))
+    Vc = torch.rfft(v, 1, onesided=False)
 
     k = - torch.arange(N, dtype=x.dtype, device=x.device)[None, :] * np.pi / (2 * N)
     W_r = torch.cos(k)
@@ -98,7 +98,7 @@ def idct(X, norm=None):
 
     V = torch.cat([V_r.unsqueeze(2), V_i.unsqueeze(2)], dim=2)
 
-    v = torch.fft.irfft(torch.view_as_complex(V), n=V.shape[1], dim=1)
+    v = torch.irfft(V, 1, onesided=False)
     x = v.new_zeros(v.shape)
     x[:, ::2] += v[:, :N - (N // 2)]
     x[:, 1::2] += v.flip([1])[:, :N // 2]
@@ -175,75 +175,64 @@ def idct_3d(X, norm=None):
     x3 = idct(x2.transpose(-1, -3), norm=norm)
     return x3.transpose(-1, -3).transpose(-1, -2)
 
-def make_pass_dctidct(net, n_segments):
+def make_channel_dctidct(net, n_segments):
     import torchvision
     import archs
     res50_spatial_feat_dim = {
-        "layer1": 56,
         "layer2" : 28,
         "layer3" : 14,
         "layer4" : 7
     }
     
     if isinstance(net, torchvision.models.ResNet):
-        net.layer1 = nn.Sequential(
-            net.layer1[0],
-            net.layer1[1],
-            net.layer1[2]
-           )
-
+        '''
         net.layer2 = nn.Sequential(
             net.layer2[0],
             net.layer2[1],
             net.layer2[2],
-            net.layer2[3]
-           )
-
+            cDCTiDCTWrapper3D(net.layer2[3], n_segments, res50_spatial_feat_dim["layer2"]),
+           ) 
+        '''
         net.layer3 = nn.Sequential(
-            DCTiDCTWrapper3D(net.layer3[0], n_segments, res50_spatial_feat_dim["layer3"]),
+            net.layer3[0],
             net.layer3[1],
             net.layer3[2],
             net.layer3[3],
             net.layer3[4],
-            net.layer3[5],
-           )
+            cDCTiDCTWrapper3D(net.layer3[5], n_segments, res50_spatial_feat_dim["layer3"]),
+           ) 
+
         net.layer4 = nn.Sequential(
-            DCTiDCTWrapper3D(net.layer4[0], n_segments, res50_spatial_feat_dim["layer4"]),
+            net.layer4[0],
             net.layer4[1],
-            net.layer4[2],
+            cDCTiDCTWrapper3D(net.layer4[2], n_segments, res50_spatial_feat_dim["layer4"]),
            )
-
-
-
     else:
         raise NotImplementedError 
 
 
-class DCTiDCTWrapper3D(nn.Module):
+class cDCTiDCTWrapper3D(nn.Module):
     def __init__(self, block, n_segments, spatial_dim):
-        super(DCTiDCTWrapper3D, self).__init__()
+        super(cDCTiDCTWrapper3D, self).__init__()
     
         self.block = block
         self.num_segments = n_segments
-        #self.dct_c = LinearDCT(block.bn3.num_features, "dct", norm='ortho')    
-        self.dct_h = LinearDCT(spatial_dim, "dct", norm='ortho')    
-        self.dct_w = LinearDCT(spatial_dim, "dct", norm='ortho')    
-        self.dct_t = LinearDCT(n_segments, "dct", norm='ortho')    
-        #self.idct_c = LinearDCT(block.bn3.num_features, "idct", norm='ortho')    
-        self.idct_h = LinearDCT(spatial_dim, "idct", norm='ortho')    
-        self.idct_w = LinearDCT(spatial_dim, "idct", norm='ortho')    
-        self.idct_t = LinearDCT(n_segments, "idct", norm='ortho')
-
-        self.complex_l = nn.Parameter(torch.randn(n_segments, block.bn3.num_features, spatial_dim, spatial_dim, dtype=torch.float32) * 0.02)
-        self.complex_h = nn.Parameter(torch.randn(n_segments, block.bn3.num_features, spatial_dim, spatial_dim, dtype=torch.float32) * 0.02)
-
-
-        self.mask_thw = nn.Conv3d(block.bn3.num_features, 1, 1)
+        self.dct_c = LinearDCT(block.bn3.num_features, "dct", norm='ortho')    
+        #self.dct_h = LinearDCT(spatial_dim, "dct", norm='ortho')    
+        #self.dct_w = LinearDCT(spatial_dim, "dct", norm='ortho')    
+        #self.dct_t = LinearDCT(n_segments, "dct", norm='ortho')    
+        self.idct_c = LinearDCT(block.bn3.num_features, "idct", norm='ortho')    
+        #self.idct_h = LinearDCT(spatial_dim, "idct", norm='ortho')    
+        #self.idct_w = LinearDCT(spatial_dim, "idct", norm='ortho')    
+        #self.idct_t = LinearDCT(n_segments, "idct", norm='ortho')
+        
+        self.what_to_mask = n_segments*spatial_dim*spatial_dim
+        self.mask_c = nn.Linear(self.what_to_mask, 1)
         #self.hard_mask_thw = nn.Conv3d(block.bn3.num_features, 2, 1)
 
-        self.enhance_thw = nn.Sequential(
+        self.enhance_c = nn.Sequential(
                 #nn.Conv3d(block.bn3.num_features, 1, 1),
-                nn.Conv3d(block.bn3.num_features, block.bn3.num_features, 1),
+                nn.Linear(self.what_to_mask, self.what_to_mask),
                 #nn.ReLU()
                 nn.Tanh()
                 )
@@ -271,16 +260,19 @@ class DCTiDCTWrapper3D(nn.Module):
     
     def sigmoid_pass(self, x):
         _b, _t, _c, _h, _w = x.shape
-        mask_x = self.mask_thw(x.permute(0,2,1,3,4)) #B,T,C,H,W => B,1,T,H,W
+        mask_x = self.mask_c(x.permute(0,2,1,3,4).reshape(_b,_c,-1)) #B,T,C,H,W => B,C,1
         
-        mask_x = mask_x.view(_b, 1, _t*_h*_w).permute(0,2,1)
+        #mask_x = mask_x.view(_b, 1, _t*_h*_w).permute(0,2,1)
         mask_x = nn.Sigmoid()(mask_x)
-        mask_x = mask_x.view(_b, _t, _h, _w, 1)
-        mask_x = mask_x.permute(0,1,4,2,3)
-        mask_x = mask_x.expand(-1, -1, _c, -1, -1)
-
+        #mask_x = mask_x.view(_b, _t, _h, _w, 1)
+        #mask_x = mask_x.permute(0,1,4,2,3)
+        mask_x = mask_x.expand(-1, -1, _t*_h*_w) #=>B,C,THW
+        mask_x = mask_x.view(_b, _c, _t, _h, _w) #=>B,C,T,H,W
+        
+        mask_x = mask_x.permute(0,2,1,3,4) #=>B,T,C,H,W
+        
         return mask_x * x
-    
+    '''
     def hard_adaptive_pass(self, x, tau):
         _b, _t, _c, _h, _w = x.shape
         mask_x = self.hard_mask_thw(x.permute(0,2,1,3,4)) #B,T,C,H,W => B,2,T,H,W
@@ -296,56 +288,28 @@ class DCTiDCTWrapper3D(nn.Module):
         mask_x = mask_x.expand(-1, -1, _c, -1, -1)
 
         return mask_x * x
-    
+    '''
+
     def enhancement(self, x):
         _b, _t, _c, _h, _w = x.shape
-        enh_x = self.enhance_thw(x.permute(0,2,1,3,4))
-
-        enh_x = enh_x.permute(0,2,1,3,4)
+        enh_x = self.enhance_c(x.permute(0,2,1,3,4).reshape(_b,_c,-1)) #B,T,C,H,W => B,C,THW
+        enh_x = enh_x.view(_b,_c,_t,_h,_w).permute(0,2,1,3,4)
         return enh_x
-    
-#        enh_x = enh_x.expand(-1, -1, _c, -1, -1)
+        #enh_x = enh_x.expand(-1, -1, _c, -1, -1)
         
- #       return enh_x * x
+        #return enh_x * x
 
     def forward(self, x):
-        x = self.block(x)
-        
         _bt, _c, _h, _w = x.shape
-        _t = self.num_segments
-        x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w)
+        x = self.block(x)
+        x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w) #B,T,C,H,W
         
-        mask_l = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
-        # mask_l[:, :, _h//4:, _w//4:, :] = 0
-        # mask_l[:, :_t//4*3, :, :, :] = 0
+        dct_x = apply_linear_4d_woTHW(x, self.dct_c) #B,T,C,H,W
+        dct_x = self.sigmoid_pass(dct_x)
+        dct_x = apply_linear_4d_woTHW(dct_x, self.idct_c)
+        dct_x = self.enhancement(dct_x)
 
-        # mask_h = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
-        # mask_l[:, :, :_h//4*3, :_w//4*3, :] = 0
-        # mask_h[:, :_t//4*3, :, :, :] = 0
-
-
-        dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
-       # dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
-        #dct_x = self.low_pass(dct_x)
-        #dct_x = self.adaptive_pass(dct_x)
-        #dct_x = self.sigmoid_pass(dct_x)
-        #dct_x = self.hard_adaptive_pass(dct_x, 0.67)
-
-
-        x_l = dct_x * mask_l
-        x_l = self.complex_l * x_l
-
-        # x_h = dct_x * mask_h
-        # x_h = self.complex_h * x_h
-
-        x_l = apply_linear_4d_woC((x_l), self.idct_t, self.idct_h, self.idct_w)
-        # x_h = apply_linear_4d_woC((x_h), self.idct_t, self.idct_h, self.idct_w)
-        #dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
-
-
-        dct_x = self.enhancement(x+x_l)
-
-        return dct_x.reshape(_bt, _c, _h, _w)
+        return (x + dct_x).reshape(_bt, _c, _h, _w)
         
 
 class LinearDCT(nn.Linear):
@@ -395,6 +359,14 @@ def apply_linear_3d(x, linear_layer):
     X3 = linear_layer(X2.transpose(-1, -3))
     return X3.transpose(-1, -3).transpose(-1, -2)
 
+def apply_linear_4d_woTHW(x, c_FC):
+    """Can be used with a LinearDCT layer to do a 3D DCT.
+    :param x: the input signal
+    :param linear_layer: any PyTorch Linear layer
+    :return: result of linear layer applied to last 3 dimensions
+    """
+    X = c_FC(x.transpose(-1, -3))
+    return X.transpose(-1, -3)
 
 def apply_linear_4d_woC(x, t_FC, h_FC, w_FC):
     """Can be used with a LinearDCT layer to do a 3D DCT.
