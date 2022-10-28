@@ -75,7 +75,6 @@ def main():
                 channel_fft=args.cfft
                 )
 				#is_rnn=args.is_rnn, rnn_rate_list=args.rnn_rate_list, hidden_dim=args.hidden_dim)
-    
     crop_size = model.crop_size
     scale_size = model.scale_size
     input_mean = model.input_mean
@@ -84,14 +83,10 @@ def main():
     train_augmentation = model.get_augmentation(flip=False if 'something' in args.dataset or 'jester' in args.dataset else True)
     model = torch.nn.DataParallel(model, device_ids=args.gpus).cuda()
 
-    optimizer = torch.optim.SGD(model.parameters(),
-                                args.lr,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
-    # optimizer = torch.optim.SGD(policies,
-    #                             args.lr,
-    #                             momentum=args.momentum,
-    #                             weight_decay=args.weight_decay)
+    optimizer = torch.optim.SGD(policies,
+                                 args.lr,
+                                 momentum=args.momentum,
+                                 weight_decay=args.weight_decay)
     if args.resume:
         if args.temporal_pool:  # early temporal pool so that we can load the state_dict
             make_temporal_pool(model.module.base_model, args.num_segments)
@@ -165,10 +160,8 @@ def main():
     '''
     import wandb
     wandb.init(
-        project="nprc_tsm",
-        entity="video_channel",
-        name=args.store_name,
-        settings=wandb.Settings(start_method='fork')
+        project="tsm_dct",
+        entity="tingultem"
     )
 
     cudnn.benchmark = True
@@ -203,14 +196,11 @@ def main():
     with open(os.path.join(args.root_log, args.store_name, 'args.txt'), 'w') as f:
         f.write(str(args))
     tf_writer = SummaryWriter(log_dir=os.path.join(args.root_log, args.store_name))
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.1, last_epoch=- 1, verbose=False)
 
     for epoch in range(args.start_epoch, args.epochs):
-        # adjust_learning_rate(optimizer, epoch, args.lr_type, args.lr_steps)
-
+        adjust_learning_rate(optimizer, epoch, args.lr_type, args.lr_steps)
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, log_training, tf_writer, wandb)
-        scheduler.step()
         # evaluate on validation set
         if (epoch + 1) % args.eval_freq == 0 or epoch == args.epochs - 1:
             prec1 = validate(val_loader, model, criterion, epoch, log_training, tf_writer, wandb)

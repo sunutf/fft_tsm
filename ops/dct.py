@@ -251,8 +251,8 @@ class DCTiDCTWrapper3D(nn.Module):
         self.enhance_thw2 = nn.Sequential(
                 #nn.Conv3d(block.bn3.num_features, 1, 1),
                 nn.Conv3d(block.bn3.num_features, block.bn3.num_features, 1),
-                nn.ReLU()
-                # nn.Tanh()
+                # nn.ReLU()
+                nn.Tanh()
                 )
 
     def low_pass(self, x):
@@ -335,7 +335,7 @@ class DCTiDCTWrapper3D(nn.Module):
 
         mask_h = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
         # mask_h[:, :, :_h//4*3, :_w//4*3, :] = 0
-        mask_l[:, :_t//4*3, :, :, :] = 0
+        mask_h[:, :_t//4*3, :, :, :] = 0
 
 
         dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
@@ -357,7 +357,7 @@ class DCTiDCTWrapper3D(nn.Module):
         #dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
 
 
-        dct_x = x + self.enhancement(x_l+x_h)
+        dct_x = x + self.enhancement(x_l) + self.enhancement(x_h)
 
         return dct_x.reshape(_bt, _c, _h, _w)
         
