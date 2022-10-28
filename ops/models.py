@@ -273,6 +273,9 @@ class TSN(nn.Module):
                         lr10_bias.append(ps[1])
                     else:
                         normal_bias.append(ps[1])
+            elif isinstance(m, torch.nn.Parameter):
+                ps = list(m.parameters())
+
 
             elif isinstance(m, torch.nn.BatchNorm2d):
                 bn_cnt += 1
