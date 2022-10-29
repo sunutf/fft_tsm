@@ -187,13 +187,13 @@ def make_pass_dctidct(net, n_segments):
 
     if isinstance(net, torchvision.models.ResNet):
         net.layer1 = nn.Sequential(
-            net.layer1[0],
+            DCTiDCTWrapper3D(net.layer1[0], n_segments, res50_spatial_feat_dim["layer1"]),
             net.layer1[1],
             net.layer1[2]
            )
 
         net.layer2 = nn.Sequential(
-            net.layer2[0],
+            DCTiDCTWrapper3D(net.layer2[0], n_segments, res50_spatial_feat_dim["layer2"]),
             net.layer2[1],
             net.layer2[2],
             net.layer2[3]
@@ -329,35 +329,34 @@ class DCTiDCTWrapper3D(nn.Module):
         _t = self.num_segments
         x = x.view(_bt//self.num_segments, self.num_segments, _c, _h, _w)
 
-        mask_l = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
+        # mask_l = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
         # mask_l[:, _t//4:, _h//4:, _w//4:, :] = 0
-        mask_l[:, _t//4:, :, :, :] = 0
+        # mask_l[:, _t//4:, :, :, :] = 0
 
-        mask_h = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
+        # mask_h = torch.ones(1, self.num_segments, 1, 1, 1).to(x.device)
         # mask_h[:, :, :_h//4*3, :_w//4*3, :] = 0
-        mask_h[:, :_t//4*3, :, :, :] = 0
+        # mask_h[:, :_t//4*3, :, :, :] = 0
 
 
         dct_x = apply_linear_4d_woC(x, self.dct_t, self.dct_h, self.dct_w)
        # dct_x = apply_linear_4d(x, self.dct_t, self.dct_c, self.dct_h, self.dct_w)
         #dct_x = self.low_pass(dct_x)
-        #dct_x = self.adaptive_pass(dct_x)
+        dct_x = self.adaptive_pass(dct_x)
         #dct_x = self.sigmoid_pass(dct_x)
         #dct_x = self.hard_adaptive_pass(dct_x, 0.67)
 
 
-        x_l = dct_x * mask_l
-        x_l = self.complex_l * x_l
+        # x_l = dct_x * mask_l
+        # x_l = self.complex_l * x_l
+        #
+        # x_h = dct_x * mask_h
+        # x_h = self.complex_h * x_h
 
-        x_h = dct_x * mask_h
-        x_h = self.complex_h * x_h
+        # x_l = apply_linear_4d_woC((x_l), self.idct_t, self.idct_h, self.idct_w)
+        # x_h = apply_linear_4d_woC((x_h), self.idct_t, self.idct_h, self.idct_w)
+        dct_x = apply_linear_4d_woC(dct_x, self.idct_t, self.idct_h, self.idct_w)
 
-        x_l = apply_linear_4d_woC((x_l), self.idct_t, self.idct_h, self.idct_w)
-        x_h = apply_linear_4d_woC((x_h), self.idct_t, self.idct_h, self.idct_w)
-        #dct_x = apply_linear_4d(dct_x, self.idct_t, self.idct_c, self.idct_h, self.idct_w)
-
-
-        dct_x = x + self.enhancement(x_l) + self.enhancement(x_h)
+        dct_x = x + self.enhancement(dct_x)
 
         return dct_x.reshape(_bt, _c, _h, _w)
         
