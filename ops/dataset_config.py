@@ -5,18 +5,18 @@
 
 import os
 
-ROOT_DATASET = '/data2/taehoon/'  # '/data/jilin/'
+ROOT_DATASET = os.getcwd() + '/datasets/'  # '/data/jilin/'
 
 
 def return_ucf101(modality):
-    filename_categories = 'UCF101/labels/classInd.txt'
+    filename_categories = 'UCF101/classInd.txt'
     if modality == 'RGB':
         root_data = ROOT_DATASET + 'UCF101/frames'
-        filename_imglist_train = 'UCF101/file_list/ucf101_rgb_train_split_1.txt'
-        filename_imglist_val = 'UCF101/file_list/ucf101_rgb_val_split_1.txt'
+        filename_imglist_train = 'UCF101/ucf101_train_split1.txt'
+        filename_imglist_val = 'UCF101/ucf101_val_split1.txt'
         prefix = 'image_{:05d}.jpg'
     elif modality == 'Flow':
-        root_data = ROOT_DATASET + 'UCF101/frames'
+        root_data = ROOT_DATASET + 'UCF101/jpg'
         filename_imglist_train = 'UCF101/file_list/ucf101_flow_train_split_1.txt'
         filename_imglist_val = 'UCF101/file_list/ucf101_flow_val_split_1.txt'
         prefix = 'flow_{}_{:05d}.jpg'
@@ -76,6 +76,17 @@ def return_somethingv2(modality):
         raise NotImplementedError('no such modality:'+modality)
     return filename_categories, filename_imglist_train, filename_imglist_val, root_data, prefix
 
+def return_dynamicMNIST(modality):
+    filename_categories = 'DynamicMNIST/trimmed/coarse/category.txt'
+    if modality == 'RGB':
+        root_data = ROOT_DATASET + 'DynamicMNIST/trimmed/coarse/frames'
+        filename_imglist_train = 'DynamicMNIST/trimmed/coarse/train.txt'
+        filename_imglist_val = 'DynamicMNIST/trimmed/coarse/val.txt'
+        prefix = 'image_{:02d}.jpg'
+    else:
+        raise NotImplementedError('no such modality:'+modality)
+    return filename_categories, filename_imglist_train, filename_imglist_val, root_data, prefix
+
 
 def return_jester(modality):
     filename_categories = 'jester/category.txt'
@@ -100,11 +111,21 @@ def return_kinetics(modality):
         raise NotImplementedError('no such modality:' + modality)
     return filename_categories, filename_imglist_train, filename_imglist_val, root_data, prefix
 
+def return_actnet(modality):
+    filename_categories = ROOT_DATASET + 'activity-net-v1.3/classInd.txt'
+    if modality == 'RGB':
+        root_data = ROOT_DATASET + 'activity-net-v1.3/frames'
+        filename_imglist_train = 'activity-net-v1.3/actnet_train_split.txt'
+        filename_imglist_val = 'activity-net-v1.3/actnet_val_split.txt'
+        prefix = 'image_{:05d}.jpg'
+    else:
+        raise NotImplementedError('no such modality:' + modality)
+    return filename_categories, filename_imglist_train, filename_imglist_val, root_data, prefix
 
 def return_dataset(dataset, modality):
     dict_single = {'jester': return_jester, 'something': return_something, 'somethingv2': return_somethingv2,
                    'ucf101': return_ucf101, 'hmdb51': return_hmdb51,
-                   'kinetics': return_kinetics }
+                   'kinetics': return_kinetics, 'anet': return_actnet , 'dynamnist': return_dynamicMNIST}
     if dataset in dict_single:
         file_categories, file_imglist_train, file_imglist_val, root_data, prefix = dict_single[dataset](modality)
     else:
